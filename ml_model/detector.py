@@ -54,6 +54,26 @@ class AnomalyDetector:
             "anomaly_score": round(score, 3),
             "ground_truth_fraud": transaction["is_anomalous"] # Keeping this to check our accuracy!
         }
+    
+    def update_model(self, amount, payment_method, is_actual_fraud):
+        """Human-in-the-loop feedback to retrain the model."""
+        print(f"🧠 FEEDBACK RECEIVED: Amount: ${amount}, Fraud: {is_actual_fraud}. Retraining...")
+        
+        payment_map = {"credit_card": 1, "debit_card": 1, "paypal": 2, "crypto": 3, "wire_transfer": 3}
+        payment_val = payment_map.get(payment_method, 0)
+        
+        # Add the corrected data point to our memory buffer
+        # In a real system, we'd handle fraud labels differently, but for an 
+        # unsupervised Isolation Forest, we just feed it more data to understand the "landscape"
+        self.training_buffer.append([amount, payment_val])
+        
+        # Keep buffer from getting infinitely large (keep the newest 200)
+        if len(self.training_buffer) > 200:
+            self.training_buffer.pop(0)
+            
+        # Retrain the model instantly
+        self.model.fit(self.training_buffer)
+        print("✅ Model retrained successfully with new human feedback!")
 
 if __name__ == "__main__":
     # --- LOCAL TESTING BLOCK ---
