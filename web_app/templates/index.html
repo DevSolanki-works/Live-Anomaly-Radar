@@ -29,6 +29,11 @@
         <div id="chart-container">
             <canvas id="radarChart"></canvas>
         </div>
+            
+        <div id="warmup-container">
+            <div id="warmup-bar"></div>
+            <div id="warmup-text">CALIBRATING NEURAL ENGINE: 0%</div>
+        </div>
 
         <div id="radar-container">
             <div id="feed"></div>
@@ -86,6 +91,21 @@
             
             // (Keep your Chart.js update logic here as well)
         });
+
+        socket.on('warmup_update', (data) => {
+        document.getElementById('mode').innerText = "Calibrating...";
+        const bar = document.getElementById('warmup-bar');
+        const text = document.getElementById('warmup-text');
+        
+        bar.style.width = data.progress + "%";
+        text.innerText = `CALIBRATING NEURAL ENGINE: ${Math.round(data.progress)}% (${data.current}/${data.total})`;
+    });
+
+    socket.on('warmup_finished', () => {
+        document.getElementById('mode').innerText = "Active Detection";
+        // Hide the warmup bar after it finishes
+        document.getElementById('warmup-container').style.display = 'none';
+    });
     </script>
 </body>
 </html>
