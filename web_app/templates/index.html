@@ -1,111 +1,89 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <title>AI Anomaly Radar</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        /* A little extra styling for our new chart container */
-        #chart-container {
-            width: 100%;
-            max-width: 900px;
-            margin: 0 auto 30px auto;
-            border: 1px solid var(--border-color);
-            padding: 20px;
-            background-color: #050505;
-        }
+        #chart-container { height: 300px; width: 100%; margin-bottom: 20px; border: 1px solid #333; background: #050505; }
+        #warmup-container { width: 100%; background: #111; border: 1px solid #333; height: 30px; margin-bottom: 20px; position: relative; }
+        #warmup-bar { width: 0%; height: 100%; background: #00ff41; transition: width 0.3s; }
+        #warmup-text { position: absolute; width: 100%; text-align: center; top: 5px; font-family: monospace; color: #fff; }
     </style>
 </head>
 <body>
-    <div id="main-layout">
-        <h1>SECURITY COMMAND CENTER</h1>
+    <div id="main-layout" style="padding: 20px; max-width: 1000px; margin: auto;">
+        <h1 style="text-align: center; color: #00ff41; letter-spacing: 5px;">SECURITY COMMAND CENTER</h1>
         
-        <div id="stats-bar">
-            <div class="stat-card">🛡️ REVENUE PROTECTED: <span id="stat-revenue">$0</span></div>
-            <div class="stat-card">🚨 FRAUD BLOCKED: <span id="stat-count">0</span></div>
+        <div style="display: flex; gap: 20px; justify-content: center; margin-bottom: 20px;">
+            <div class="stat-card" style="border: 1px solid #333; padding: 15px; background: #111;">🛡️ REVENUE PROTECTED: <span id="stat-revenue" style="color:#00ff41">$0</span></div>
+            <div class="stat-card" style="border: 1px solid #333; padding: 15px; background: #111;">🚨 FRAUD BLOCKED: <span id="stat-count" style="color:#f33">0</span></div>
         </div>
 
-        <div id="chart-container">
-            <canvas id="radarChart"></canvas>
-        </div>
-            
         <div id="warmup-container">
             <div id="warmup-bar"></div>
-            <div id="warmup-text">CALIBRATING NEURAL ENGINE: 0%</div>
+            <div id="warmup-text">INITIALIZING NEURAL ENGINE...</div>
         </div>
 
-        <div id="radar-container">
-            <div id="feed"></div>
-        </div>
+        <div id="chart-container"><canvas id="radarChart"></canvas></div>
+
+        <div id="feed" style="border: 1px solid #333; padding: 10px; background: #050505;"></div>
     </div>
 
     <script>
         const socket = io();
-        const feed = document.getElementById('feed');
-
-        // --- NEW: Better Feedback Function ---
-        function sendFeedback(id, amount, method, isActualFraud, elementId) {
-            // Target the specific button container using its unique ID
-            const container = document.getElementById(`actions-${id}`);
-            container.innerHTML = `<span style="color: #ffb86c; font-size: 0.8rem;">Syncing Brain...</span>`;
-
-            fetch('/feedback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, amount, method, is_fraud: isActualFraud })
-            })
-            .then(res => res.json())
-            .then(data => {
-                // Update the stats bar with live data from server
-                document.getElementById('stat-revenue').innerText = `$${data.stats.revenue_saved.toLocaleString()}`;
-                document.getElementById('stat-count').innerText = data.stats.fraud_detected;
-                container.innerHTML = `<span style="color: #00ff41; font-size: 0.8rem;">✓ Model Retrained</span>`;
-            });
-        }
-
-        socket.on('new_transaction', (data) => {
-            const div = document.createElement('div');
-            div.className = data.is_anomaly ? 'entry anomaly' : 'entry';
-            
-            // Give each transaction its own unique ID for the action buttons
-            const actionId = `actions-${data.transaction_id}`;
-
-            let actionHtml = '';
-            if (data.is_anomaly) {
-                actionHtml = `
-                    <div id="${actionId}" class="action-buttons">
-                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true, '${actionId}')" class="btn-confirm">Confirm Fraud</button>
-                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', false, '${actionId}')" class="btn-ignore">False Alarm</button>
-                    </div>
-                `;
-            }
-
-            div.innerHTML = `
-                <span><strong>ID:</strong> ${data.transaction_id.slice(0,5)}</span>
-                <span><strong>AMT:</strong> $${data.amount}</span>
-                <span><strong>METHOD:</strong> ${data.payment_method.toUpperCase()}</span>
-                ${actionHtml}
-            `;
-            feed.prepend(div);
-            
-            // (Keep your Chart.js update logic here as well)
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        const radarChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Transaction Amt', data: [], borderColor: '#00ff41', tension: 0.1, pointBackgroundColor: [] }] },
+            options: { maintainAspectRatio: false, scales: { y: { grid: {color: '#222'} }, x: { display: false } } }
         });
 
         socket.on('warmup_update', (data) => {
-        document.getElementById('mode').innerText = "Calibrating...";
-        const bar = document.getElementById('warmup-bar');
-        const text = document.getElementById('warmup-text');
-        
-        bar.style.width = data.progress + "%";
-        text.innerText = `CALIBRATING NEURAL ENGINE: ${Math.round(data.progress)}% (${data.current}/${data.total})`;
-    });
+            let percent = (data.current / data.total) * 100;
+            document.getElementById('warmup-bar').style.width = percent + "%";
+            document.getElementById('warmup-text').innerText = `CALIBRATING: ${Math.round(percent)}% (${data.current}/${data.total})`;
+        });
 
-    socket.on('warmup_finished', () => {
-        document.getElementById('mode').innerText = "Active Detection";
-        // Hide the warmup bar after it finishes
-        document.getElementById('warmup-container').style.display = 'none';
-    });
+        socket.on('warmup_finished', () => {
+            document.getElementById('warmup-container').style.display = 'none';
+        });
+
+        socket.on('new_transaction', (data) => {
+            const feed = document.getElementById('feed');
+            const div = document.createElement('div');
+            div.className = data.is_anomaly ? 'entry anomaly' : 'entry';
+            div.style = `border-left: 4px solid ${data.is_anomaly ? '#f33' : '#0f4'}; padding: 10px; margin-bottom: 5px; background: #111; display: flex; justify-content: space-between;`;
+            
+            const actionId = `actions-${data.transaction_id}`;
+            let btnHtml = data.is_anomaly ? `<div id="${actionId}"><button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true, '${actionId}')" style="color:#f33; background:none; border:1px solid #f33; cursor:pointer;">Confirm</button></div>` : '';
+
+            div.innerHTML = `<span>ID: ${data.transaction_id.slice(0,5)}</span> <span>$${data.amount}</span> <span>${data.payment_method}</span> ${btnHtml}`;
+            feed.prepend(div);
+
+            // Update Chart
+            radarChart.data.labels.push("");
+            radarChart.data.datasets[0].data.push(data.amount);
+            radarChart.data.datasets[0].pointBackgroundColor.push(data.is_anomaly ? '#f33' : '#0f4');
+            if(radarChart.data.labels.length > 20) { radarChart.data.labels.shift(); radarChart.data.datasets[0].data.shift(); radarChart.data.datasets[0].pointBackgroundColor.shift(); }
+            radarChart.update();
+        });
+
+        function sendFeedback(id, amount, method, isFraud, elementId) {
+            document.getElementById(elementId).innerHTML = "Syncing...";
+            fetch('/feedback', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({id, amount, method, is_fraud: isFraud})
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('stat-revenue').innerText = `$${data.stats.revenue_saved.toLocaleString()}`;
+                document.getElementById('stat-count').innerText = data.stats.fraud_detected;
+                document.getElementById(elementId).innerHTML = "✓ Retrained";
+            });
+        }
     </script>
 </body>
 </html>
