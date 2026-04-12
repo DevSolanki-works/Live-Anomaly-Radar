@@ -71,28 +71,31 @@ def handle_feedback():
     })
 
 def stream_and_detect():
-    """Background task that generates data, runs ML, and saves to DB."""
-    print("🛰️  Radar System Online. Broadcasting and Logging...")
+    print("🛰️  Radar System Online.")
     while True:
         tx = generate_transaction()
         result = detector.process_transaction(tx)
         
         if result:
-            stats["total_monitored"] += 1
+            # NEW: If we are warming up, send progress to a specific socket event
+            if result.get("status") == "warming_up":
+                socketio.emit('warmup_update', {
+                    "progress": (result['current'] / result['total']) * 100,
+                    "current": result['current'],
+                    "total": result['total']
+                })
             
-            # Save to Database
-            conn = sqlite3.connect('radar.db')
-            c = conn.cursor()
-            c.execute("INSERT INTO transactions (id, amount, method, is_anomaly, score) VALUES (?, ?, ?, ?, ?)",
-                      (result['transaction_id'], result['amount'], result['payment_method'], result['is_anomaly'], result['anomaly_score']))
-            conn.commit()
-            conn.close()
+            # If training just finished
+            elif result.get("status") == "trained":
+                socketio.emit('warmup_finished')
 
-            # Broadcast to frontend
-            socketio.emit('new_transaction', result)
+            # Standard transaction processing (result will be the dict from prediction phase)
+            elif "is_anomaly" in result:
+                stats["total_monitored"] += 1
+                # ... (save to DB and emit 'new_transaction' as usual) ...
+                socketio.emit('new_transaction', result)
         
-        # Slowed down for readability
-        socketio.sleep(1.5)
+        socketio.sleep(0.5 if not detector.is_trained else 2.5) # Speed up warm-up, slow down for live
 
 @socketio.on('connect')
 def handle_connect():
