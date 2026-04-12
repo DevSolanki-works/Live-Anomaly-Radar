@@ -16,31 +16,14 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 # Initialize the ML Brain
 detector = AnomalyDetector()
 
-# Global stats tracker (In a real app, this would be in the DB)
+# Global stats tracker
 stats = {
     "total_monitored": 0,
     "fraud_detected": 0,
     "revenue_saved": 0.0
 }
 
-@app.route('/feedback', methods=['POST'])
-def handle_feedback():
-    data = request.json
-    is_fraud = data.get('is_fraud')
-    amount = float(data.get('amount', 0))
-    
-    # Update global stats if human confirms it's fraud
-    if is_fraud:
-        stats["fraud_detected"] += 1
-        stats["revenue_saved"] += amount
-    
-    # Retrain the model
-    detector.update_model(amount, data.get('method'), is_fraud)
-    
-    return jsonify({"status": "success", "stats": stats})
-
-
-# --- NEW: Database Initialization ---
+# --- Database Initialization ---
 def init_db():
     """Creates the SQLite database and table if it doesn't exist."""
     conn = sqlite3.connect('radar.db')
@@ -50,11 +33,42 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db() # Run this when the server starts
+init_db()
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+# --- Combined Feedback & Retraining Endpoint ---
+@app.route('/feedback', methods=['POST'])
+def handle_feedback():
+    data = request.json
+    transaction_id = data.get('id')
+    is_fraud = data.get('is_fraud')
+    amount = float(data.get('amount', 0))
+    method = data.get('method')
+    
+    # 1. Update Global Stats for the Dashboard
+    if is_fraud:
+        stats["fraud_detected"] += 1
+        stats["revenue_saved"] += amount
+    
+    # 2. Update the Database with human validation
+    conn = sqlite3.connect('radar.db')
+    c = conn.cursor()
+    c.execute("UPDATE transactions SET is_anomaly = ? WHERE id = ?", (is_fraud, transaction_id))
+    conn.commit()
+    conn.close()
+    
+    # 3. Retrain the Machine Learning Model
+    detector.update_model(amount, method, is_fraud)
+    
+    # Return both a success message and updated stats for the frontend
+    return jsonify({
+        "status": "success", 
+        "message": "Model retrained and stats updated", 
+        "stats": stats
+    })
 
 def stream_and_detect():
     """Background task that generates data, runs ML, and saves to DB."""
@@ -64,7 +78,9 @@ def stream_and_detect():
         result = detector.process_transaction(tx)
         
         if result:
-            # --- NEW: Save to Database ---
+            stats["total_monitored"] += 1
+            
+            # Save to Database
             conn = sqlite3.connect('radar.db')
             c = conn.cursor()
             c.execute("INSERT INTO transactions (id, amount, method, is_anomaly, score) VALUES (?, ?, ?, ?, ?)",
@@ -75,6 +91,7 @@ def stream_and_detect():
             # Broadcast to frontend
             socketio.emit('new_transaction', result)
         
+        # Adjustable delay for readability
         socketio.sleep(2.5)
 
 @socketio.on('connect')
@@ -82,30 +99,6 @@ def handle_connect():
     print("💻 Client connected to Radar.")
     socketio.start_background_task(stream_and_detect)
 
-# --- NEW: Human-in-the-Loop Feedback Endpoint ---
-@app.route('/feedback', methods=['POST'])
-def handle_feedback():
-    data = request.json
-    transaction_id = data.get('id')
-    is_fraud = data.get('is_fraud')
-    amount = data.get('amount')
-    method = data.get('method')
-    
-    # 1. Update the Database with human validation
-    conn = sqlite3.connect('radar.db')
-    c = conn.cursor()
-    c.execute("UPDATE transactions SET is_anomaly = ? WHERE id = ?", (is_fraud, transaction_id))
-    conn.commit()
-    conn.close()
-    
-    # 2. Retrain the Machine Learning Model
-    detector.update_model(amount, method, is_fraud)
-    
-    return jsonify({"status": "success", "message": "Model retrained"})
-
 if __name__ == '__main__':
-    # Use the port assigned by the cloud provider, default to 5000 for local
     port = int(os.environ.get("PORT", 5000))
-    # Set debug=False for production to prevent security leaks
     socketio.run(app, host='0.0.0.0', port=port, debug=False)
-
