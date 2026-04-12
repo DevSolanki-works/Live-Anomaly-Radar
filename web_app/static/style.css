@@ -70,6 +70,34 @@ h1 {
     animation: flash 1s infinite alternate;
 }
 
+#stats-bar {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    justify-content: center;
+}
+
+.stat-card {
+    background: #111;
+    border: 1px solid #333;
+    padding: 15px 25px;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--text-color);
+}
+
+.action-buttons button {
+    padding: 5px 10px;
+    margin-left: 5px;
+    font-family: 'Courier New', monospace;
+    cursor: pointer;
+    border: 1px solid;
+}
+
+.btn-confirm { background: #300; color: #f33; border-color: #f33; }
+.btn-ignore { background: #030; color: #0f4; border-color: #0f4; }
+
+
 @keyframes flash {
     from { opacity: 1; }
     to { opacity: 0.5; }
