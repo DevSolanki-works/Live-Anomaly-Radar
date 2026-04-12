@@ -28,15 +28,19 @@ class AnomalyDetector:
         # 2. The Warm-Up Phase
         if not self.is_trained:
             self.training_buffer.append(features[0])
-            print(f"🔄 Warming up model... ({len(self.training_buffer)}/{self.warmup_size})")
+            current_count = len(self.training_buffer)
             
-            if len(self.training_buffer) >= self.warmup_size:
-                # Once we have enough data, fit the model to establish "normal"
+            if current_count >= self.warmup_size:
                 self.model.fit(self.training_buffer)
                 self.is_trained = True
-                print("✅ Model trained and ready for live detection!\n" + "="*50)
-            return None # Don't return predictions during warm-up
-
+                return {"status": "trained"} # Signal that we are ready
+            
+            # NEW: Return the current progress to the backend
+            return {
+                "status": "warming_up", 
+                "current": current_count, 
+                "total": self.warmup_size
+            }
         # 3. The Live Prediction Phase
         # predict() returns 1 for normal data, -1 for anomalies
         prediction = self.model.predict(features)[0]
