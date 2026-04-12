@@ -1,24 +1,119 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Anomaly Radar</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
-        #chart-container { height: 300px; width: 100%; margin-bottom: 20px; border: 1px solid #333; background: #050505; }
-        #warmup-container { width: 100%; background: #111; border: 1px solid #333; height: 30px; margin-bottom: 20px; position: relative; }
-        #warmup-bar { width: 0%; height: 100%; background: #00ff41; transition: width 0.3s; }
-        #warmup-text { position: absolute; width: 100%; text-align: center; top: 5px; font-family: monospace; color: #fff; }
+        :root {
+            --bg-color: #050505;
+            --panel-bg: #111;
+            --text-color: #e0e0e0;
+            --accent-green: #00ff41;
+            --accent-red: #ff3333;
+            --border-color: #333;
+        }
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+        }
+        #main-layout {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: var(--accent-green);
+            letter-spacing: 5px;
+            text-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+        }
+        .stats-bar {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 15px 25px;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+        #warmup-container {
+            width: 100%;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            height: 30px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+        #warmup-bar {
+            width: 0%;
+            height: 100%;
+            background-color: var(--accent-green);
+            transition: width 0.3s ease;
+        }
+        #warmup-text {
+            position: absolute;
+            width: 100%;
+            text-align: center;
+            top: 5px;
+            font-size: 0.9rem;
+            color: #fff;
+            text-shadow: 1px 1px #000;
+        }
+        #chart-container {
+            height: 300px;
+            width: 100%;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-color);
+        }
+        #feed {
+            border: 1px solid var(--border-color);
+            padding: 15px;
+            background: var(--bg-color);
+            height: 300px;
+            overflow-y: auto;
+        }
+        .entry {
+            border-left: 4px solid var(--accent-green);
+            padding: 10px;
+            margin-bottom: 8px;
+            background: var(--panel-bg);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+        .entry.anomaly {
+            border-left: 4px solid var(--accent-red);
+        }
+        .action-buttons button {
+            background: none;
+            font-family: inherit;
+            cursor: pointer;
+            padding: 5px 10px;
+            margin-left: 5px;
+            font-weight: bold;
+        }
+        .btn-confirm { color: var(--accent-red); border: 1px solid var(--accent-red); }
+        .btn-ignore { color: var(--accent-green); border: 1px solid var(--accent-green); }
     </style>
 </head>
 <body>
-    <div id="main-layout" style="padding: 20px; max-width: 1000px; margin: auto;">
-        <h1 style="text-align: center; color: #00ff41; letter-spacing: 5px;">SECURITY COMMAND CENTER</h1>
+    <div id="main-layout">
+        <h1>SECURITY COMMAND CENTER</h1>
         
-        <div style="display: flex; gap: 20px; justify-content: center; margin-bottom: 20px;">
-            <div class="stat-card" style="border: 1px solid #333; padding: 15px; background: #111;">🛡️ REVENUE PROTECTED: <span id="stat-revenue" style="color:#00ff41">$0</span></div>
-            <div class="stat-card" style="border: 1px solid #333; padding: 15px; background: #111;">🚨 FRAUD BLOCKED: <span id="stat-count" style="color:#f33">0</span></div>
+        <div class="stats-bar">
+            <div class="stat-card">🛡️ REVENUE PROTECTED: <span id="stat-revenue" style="color: var(--accent-green);">$0</span></div>
+            <div class="stat-card">🚨 FRAUD BLOCKED: <span id="stat-count" style="color: var(--accent-red);">0</span></div>
         </div>
 
         <div id="warmup-container">
@@ -26,20 +121,45 @@
             <div id="warmup-text">INITIALIZING NEURAL ENGINE...</div>
         </div>
 
-        <div id="chart-container"><canvas id="radarChart"></canvas></div>
+        <div id="chart-container">
+            <canvas id="radarChart"></canvas>
+        </div>
 
-        <div id="feed" style="border: 1px solid #333; padding: 10px; background: #050505;"></div>
+        <div id="feed"></div>
     </div>
 
     <script>
         const socket = io();
+        
+        // Initialize Chart.js
         const ctx = document.getElementById('radarChart').getContext('2d');
         const radarChart = new Chart(ctx, {
             type: 'line',
-            data: { labels: [], datasets: [{ label: 'Transaction Amt', data: [], borderColor: '#00ff41', tension: 0.1, pointBackgroundColor: [] }] },
-            options: { maintainAspectRatio: false, scales: { y: { grid: {color: '#222'} }, x: { display: false } } }
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Transaction Amount ($)',
+                    data: [],
+                    borderColor: '#00ff41',
+                    borderWidth: 2,
+                    tension: 0.3,
+                    pointBackgroundColor: [],
+                    pointRadius: 4
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    y: { grid: { color: '#222' } },
+                    x: { display: false }
+                },
+                plugins: {
+                    legend: { labels: { color: '#e0e0e0' } }
+                }
+            }
         });
 
+        // Warmup Logic
         socket.on('warmup_update', (data) => {
             let percent = (data.current / data.total) * 100;
             document.getElementById('warmup-bar').style.width = percent + "%";
@@ -50,28 +170,51 @@
             document.getElementById('warmup-container').style.display = 'none';
         });
 
+        // Live Data Logic
         socket.on('new_transaction', (data) => {
             const feed = document.getElementById('feed');
             const div = document.createElement('div');
             div.className = data.is_anomaly ? 'entry anomaly' : 'entry';
-            div.style = `border-left: 4px solid ${data.is_anomaly ? '#f33' : '#0f4'}; padding: 10px; margin-bottom: 5px; background: #111; display: flex; justify-content: space-between;`;
             
             const actionId = `actions-${data.transaction_id}`;
-            let btnHtml = data.is_anomaly ? `<div id="${actionId}"><button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true, '${actionId}')" style="color:#f33; background:none; border:1px solid #f33; cursor:pointer;">Confirm</button></div>` : '';
+            let btnHtml = '';
+            
+            if (data.is_anomaly) {
+                btnHtml = `
+                    <div id="${actionId}" class="action-buttons">
+                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true, '${actionId}')" class="btn-confirm">Confirm Fraud</button>
+                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', false, '${actionId}')" class="btn-ignore">False Alarm</button>
+                    </div>
+                `;
+            }
 
-            div.innerHTML = `<span>ID: ${data.transaction_id.slice(0,5)}</span> <span>$${data.amount}</span> <span>${data.payment_method}</span> ${btnHtml}`;
+            div.innerHTML = `
+                <span><strong>ID:</strong> ${data.transaction_id.slice(0,6)}</span> 
+                <span><strong>AMT:</strong> $${data.amount.toFixed(2)}</span> 
+                <span><strong>METHOD:</strong> ${data.payment_method.toUpperCase()}</span> 
+                ${btnHtml}
+            `;
             feed.prepend(div);
 
             // Update Chart
             radarChart.data.labels.push("");
             radarChart.data.datasets[0].data.push(data.amount);
-            radarChart.data.datasets[0].pointBackgroundColor.push(data.is_anomaly ? '#f33' : '#0f4');
-            if(radarChart.data.labels.length > 20) { radarChart.data.labels.shift(); radarChart.data.datasets[0].data.shift(); radarChart.data.datasets[0].pointBackgroundColor.shift(); }
+            radarChart.data.datasets[0].pointBackgroundColor.push(data.is_anomaly ? '#ff3333' : '#00ff41');
+            
+            // Keep graph scrolling (max 20 points)
+            if(radarChart.data.labels.length > 20) { 
+                radarChart.data.labels.shift(); 
+                radarChart.data.datasets[0].data.shift(); 
+                radarChart.data.datasets[0].pointBackgroundColor.shift(); 
+            }
             radarChart.update();
         });
 
+        // Feedback Post Request
         function sendFeedback(id, amount, method, isFraud, elementId) {
-            document.getElementById(elementId).innerHTML = "Syncing...";
+            const container = document.getElementById(elementId);
+            container.innerHTML = `<span style="color: #ffb86c; font-style: italic; font-size: 0.8rem;">Syncing...</span>`;
+            
             fetch('/feedback', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -81,7 +224,7 @@
             .then(data => {
                 document.getElementById('stat-revenue').innerText = `$${data.stats.revenue_saved.toLocaleString()}`;
                 document.getElementById('stat-count').innerText = data.stats.fraud_detected;
-                document.getElementById(elementId).innerHTML = "✓ Retrained";
+                container.innerHTML = `<span style="color: #00ff41; font-weight: bold; font-size: 0.8rem;">✓ Retrained</span>`;
             });
         }
     </script>
