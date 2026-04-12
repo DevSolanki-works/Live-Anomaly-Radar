@@ -1,0 +1,76 @@
+:root {
+    --bg-color: #000000;      /* Pure pitch black */
+    --text-color: #00ff41;    /* Classic terminal green */
+    --border-color: #333333;
+    --anomaly-bg: #2a0000;    /* Dark red for fraud alerts */
+    --anomaly-text: #ff3333;  /* Bright red text */
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: 'Courier New', Courier, monospace; /* Pure coding vibe */
+    margin: 0;
+    padding: 40px 20px;
+    display: flex;
+    justify-content: center;
+}
+
+#radar-container {
+    width: 100%;
+    max-width: 900px;
+    border: 1px solid var(--border-color);
+    padding: 30px;
+    box-shadow: 0 0 20px rgba(0, 255, 65, 0.05);
+}
+
+h1 {
+    text-align: center;
+    border-bottom: 1px dashed var(--border-color);
+    padding-bottom: 15px;
+    letter-spacing: 4px;
+    font-size: 1.8rem;
+}
+
+#status {
+    text-align: center;
+    margin-bottom: 30px;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+#mode {
+    color: #ffb86c; /* Warm orange for the warm-up phase */
+}
+
+.entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    margin-bottom: 10px;
+    border-left: 3px solid var(--text-color);
+    background-color: #080808;
+    font-size: 0.95rem;
+}
+
+.entry span {
+    flex: 1;
+}
+
+/* The visual pop when the ML model catches an anomaly */
+.anomaly {
+    border-left: 3px solid var(--anomaly-text);
+    background-color: var(--anomaly-bg);
+    color: var(--anomaly-text);
+    box-shadow: inset 0 0 15px rgba(255, 0, 0, 0.1);
+}
+
+.anomaly strong {
+    animation: flash 1s infinite alternate;
+}
+
+@keyframes flash {
+    from { opacity: 1; }
+    to { opacity: 0.5; }
+}
