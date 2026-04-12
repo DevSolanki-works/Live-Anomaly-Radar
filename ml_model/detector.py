@@ -36,7 +36,7 @@ class AnomalyDetector:
         
         return {
             "status": "live",
-            "transaction_id": transaction['id'],
+            "transaction_id": transaction['transaction_id'],
             "amount": transaction['amount'],
             "payment_method": transaction['payment_method'],
             "anomaly_score": round(float(score), 4),
