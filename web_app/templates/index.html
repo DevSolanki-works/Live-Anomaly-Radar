@@ -74,12 +74,24 @@
             // 1. Update the Text Feed
             const div = document.createElement('div');
             div.className = data.is_anomaly ? 'entry anomaly' : 'entry';
-            div.innerHTML = `
+            // Build the HTML for the entry
+            let innerHTML = `
                 <span>ID: ${data.transaction_id.slice(0,8)}</span>
                 <span>Amt: $${data.amount}</span>
                 <span>Type: ${data.payment_method}</span>
                 <strong>${data.is_anomaly ? '🚨 ANOMALY DETECTED' : '✅ CLEAR'}</strong>
             `;
+
+            // --- NEW: Add Feedback Buttons if it's an anomaly ---
+            if (data.is_anomaly) {
+                innerHTML += `
+                    <div style="margin-left: 15px;">
+                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true)" style="background:#2a0000; color:#ff3333; border:1px solid #ff3333; cursor:pointer;">Confirm</button>
+                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', false)" style="background:#002a00; color:#00ff41; border:1px solid #00ff41; cursor:pointer;">False Alarm</button>
+                    </div>
+                `;
+            }
+            div.innerHTML = innerHTML;
             feed.prepend(div);
 
             // 2. Update the Live Chart
@@ -105,6 +117,27 @@
             // Tell Chart.js to re-render
             radarChart.update();
         });
+        // --- NEW: Function to send feedback to the server ---
+        function sendFeedback(id, amount, method, isActualFraud) {
+            fetch('/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    id: id,
+                    amount: parseFloat(amount),
+                    method: method,
+                    is_fraud: isActualFraud
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Feedback registered:', data);
+                // Change the text to show it was handled
+                event.target.parentElement.innerHTML = `<span style="color:#ffb86c;">Human Feedback Registered. Retraining...</span>`;
+            });
+        }
     </script>
 </body>
 </html>
