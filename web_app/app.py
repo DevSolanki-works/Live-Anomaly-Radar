@@ -92,7 +92,7 @@ def stream_and_detect():
             socketio.emit('new_transaction', result)
         
         # Slowed down for readability
-        socketio.sleep(2.5)
+        socketio.sleep(1.5)
 
 @socketio.on('connect')
 def handle_connect():
