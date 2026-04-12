@@ -16,6 +16,30 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 # Initialize the ML Brain
 detector = AnomalyDetector()
 
+# Global stats tracker (In a real app, this would be in the DB)
+stats = {
+    "total_monitored": 0,
+    "fraud_detected": 0,
+    "revenue_saved": 0.0
+}
+
+@app.route('/feedback', methods=['POST'])
+def handle_feedback():
+    data = request.json
+    is_fraud = data.get('is_fraud')
+    amount = float(data.get('amount', 0))
+    
+    # Update global stats if human confirms it's fraud
+    if is_fraud:
+        stats["fraud_detected"] += 1
+        stats["revenue_saved"] += amount
+    
+    # Retrain the model
+    detector.update_model(amount, data.get('method'), is_fraud)
+    
+    return jsonify({"status": "success", "stats": stats})
+
+
 # --- NEW: Database Initialization ---
 def init_db():
     """Creates the SQLite database and table if it doesn't exist."""
