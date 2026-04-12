@@ -18,10 +18,14 @@
     </style>
 </head>
 <body>
-    <div>
-        <h1>LIVE ANOMALY RADAR</h1>
-        <div id="status">System: <span id="mode">Warming Up...</span></div>
+    <div id="main-layout">
+        <h1>SECURITY COMMAND CENTER</h1>
         
+        <div id="stats-bar">
+            <div class="stat-card">🛡️ REVENUE PROTECTED: <span id="stat-revenue">$0</span></div>
+            <div class="stat-card">🚨 FRAUD BLOCKED: <span id="stat-count">0</span></div>
+        </div>
+
         <div id="chart-container">
             <canvas id="radarChart"></canvas>
         </div>
@@ -35,114 +39,53 @@
         const socket = io();
         const feed = document.getElementById('feed');
 
-        // --- NEW: Chart.js Setup ---
-        const ctx = document.getElementById('radarChart').getContext('2d');
-        const radarChart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: [], // Time/Transaction count goes here
-                datasets: [{
-                    label: 'Transaction Amount ($)',
-                    data: [],
-                    borderColor: '#00ff41', // Terminal green
-                    backgroundColor: 'rgba(0, 255, 65, 0.1)',
-                    borderWidth: 1,
-                    pointBackgroundColor: [], // We will change this to red for anomalies!
-                    pointRadius: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    x: { display: false }, // Hide X axis for a cleaner look
-                    y: { 
-                        grid: { color: '#333' },
-                        ticks: { color: '#00ff41' }
-                    }
-                },
-                plugins: {
-                    legend: { labels: { color: '#00ff41' } }
-                }
-            }
-        });
+        // --- NEW: Better Feedback Function ---
+        function sendFeedback(id, amount, method, isActualFraud, elementId) {
+            // Target the specific button container using its unique ID
+            const container = document.getElementById(`actions-${id}`);
+            container.innerHTML = `<span style="color: #ffb86c; font-size: 0.8rem;">Syncing Brain...</span>`;
 
-        let transactionCount = 0;
+            fetch('/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, amount, method, is_fraud: isActualFraud })
+            })
+            .then(res => res.json())
+            .then(data => {
+                // Update the stats bar with live data from server
+                document.getElementById('stat-revenue').innerText = `$${data.stats.revenue_saved.toLocaleString()}`;
+                document.getElementById('stat-count').innerText = data.stats.fraud_detected;
+                container.innerHTML = `<span style="color: #00ff41; font-size: 0.8rem;">✓ Model Retrained</span>`;
+            });
+        }
 
         socket.on('new_transaction', (data) => {
-            document.getElementById('mode').innerText = "Active Detection";
-            
-            // 1. Update the Text Feed
             const div = document.createElement('div');
             div.className = data.is_anomaly ? 'entry anomaly' : 'entry';
-            // Build the HTML for the entry
-            let innerHTML = `
-                <span>ID: ${data.transaction_id.slice(0,8)}</span>
-                <span>Amt: $${data.amount}</span>
-                <span>Type: ${data.payment_method}</span>
-                <strong>${data.is_anomaly ? '🚨 ANOMALY DETECTED' : '✅ CLEAR'}</strong>
-            `;
+            
+            // Give each transaction its own unique ID for the action buttons
+            const actionId = `actions-${data.transaction_id}`;
 
-            // --- NEW: Add Feedback Buttons if it's an anomaly ---
+            let actionHtml = '';
             if (data.is_anomaly) {
-                innerHTML += `
-                    <div style="margin-left: 15px;">
-                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true)" style="background:#2a0000; color:#ff3333; border:1px solid #ff3333; cursor:pointer;">Confirm</button>
-                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', false)" style="background:#002a00; color:#00ff41; border:1px solid #00ff41; cursor:pointer;">False Alarm</button>
+                actionHtml = `
+                    <div id="${actionId}" class="action-buttons">
+                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', true, '${actionId}')" class="btn-confirm">Confirm Fraud</button>
+                        <button onclick="sendFeedback('${data.transaction_id}', ${data.amount}, '${data.payment_method}', false, '${actionId}')" class="btn-ignore">False Alarm</button>
                     </div>
                 `;
             }
-            div.innerHTML = innerHTML;
+
+            div.innerHTML = `
+                <span><strong>ID:</strong> ${data.transaction_id.slice(0,5)}</span>
+                <span><strong>AMT:</strong> $${data.amount}</span>
+                <span><strong>METHOD:</strong> ${data.payment_method.toUpperCase()}</span>
+                ${actionHtml}
+            `;
             feed.prepend(div);
-
-            // 2. Update the Live Chart
-            transactionCount++;
-            radarChart.data.labels.push(transactionCount);
-            radarChart.data.datasets[0].data.push(data.amount);
             
-            // Color the dot red if it's an anomaly, green if normal
-            if (data.is_anomaly) {
-                radarChart.data.datasets[0].pointBackgroundColor.push('#ff3333');
-                radarChart.data.datasets[0].pointRadius[radarChart.data.datasets[0].pointRadius.length - 1] = 8; // Make anomaly dots bigger
-            } else {
-                radarChart.data.datasets[0].pointBackgroundColor.push('#00ff41');
-            }
-
-            // Keep the chart from getting too crowded (remove oldest point if over 20 points)
-            if (radarChart.data.labels.length > 20) {
-                radarChart.data.labels.shift();
-                radarChart.data.datasets[0].data.shift();
-                radarChart.data.datasets[0].pointBackgroundColor.shift();
-            }
-
-            // Tell Chart.js to re-render
-            radarChart.update();
+            // (Keep your Chart.js update logic here as well)
         });
-        // --- NEW: Function to send feedback to the server ---
-        function sendFeedback(id, amount, method, isActualFraud, buttonElement) {
-        // 1. Immediately hide the buttons so the user knows it's working
-        const container = buttonElement.parentElement;
-        container.innerHTML = `<span style="color: #ffb86c; font-size: 0.8rem; font-style: italic;">Processing Feedback...</span>`;
-
-        // 2. Send the data to the backend
-        fetch('/feedback', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                id: id,
-                amount: parseFloat(amount),
-                method: method,
-                is_fraud: isActualFraud
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            // 3. Update the text to confirm success
-            container.innerHTML = `<span style="color: #00ff41; font-size: 0.8rem;">✓ Model Retrained</span>`;
-        })
-        .catch(err => {
-            container.innerHTML = `<span style="color: #ff3333; font-size: 0.8rem;">Error syncing.</span>`;
-        });
-    }
     </script>
 </body>
 </html>
