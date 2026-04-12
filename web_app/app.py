@@ -80,4 +80,8 @@ def handle_feedback():
     return jsonify({"status": "success", "message": "Model retrained"})
 
 if __name__ == '__main__':
-    socketio.run(app, debug=True, port=5000)
+    # Use the port assigned by the cloud provider, default to 5000 for local
+    port = int(os.environ.get("PORT", 5000))
+    # Set debug=False for production to prevent security leaks
+    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+
