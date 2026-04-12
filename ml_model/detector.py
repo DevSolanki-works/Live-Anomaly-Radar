@@ -3,17 +3,18 @@ from sklearn.ensemble import IsolationForest
 
 class AnomalyDetector:
     def __init__(self):
+        # contamination=0.1 means we expect roughly 10% of data to be anomalous
         self.model = IsolationForest(contamination=0.1, random_state=42)
         self.warmup_size = 50
         self.training_buffer = []
         self.is_trained = False
 
     def process_transaction(self, transaction):
-        # Convert categorical data to numbers for the model
+        # Convert text payment methods to numbers for the math model
         payment_map = {"credit_card": 1, "debit_card": 1, "paypal": 2, "crypto": 3, "wire_transfer": 3}
         features = np.array([[transaction['amount'], payment_map.get(transaction['payment_method'], 0)]])
 
-        # PHASE 1: WARM-UP
+        # PHASE 1: WARM-UP (Collecting initial baseline data)
         if not self.is_trained:
             self.training_buffer.append(features[0])
             current_count = len(self.training_buffer)
@@ -35,7 +36,7 @@ class AnomalyDetector:
         
         return {
             "status": "live",
-            "transaction_id": transaction['transaction_id'],
+            "transaction_id": transaction['id'],
             "amount": transaction['amount'],
             "payment_method": transaction['payment_method'],
             "anomaly_score": round(float(score), 4),
@@ -43,8 +44,14 @@ class AnomalyDetector:
         }
 
     def update_model(self, amount, payment_method, is_actual_fraud):
+        """The Human-in-the-Loop retrain function."""
         payment_map = {"credit_card": 1, "debit_card": 1, "paypal": 2, "crypto": 3, "wire_transfer": 3}
         payment_val = payment_map.get(payment_method, 0)
+        
         self.training_buffer.append([amount, payment_val])
-        if len(self.training_buffer) > 200: self.training_buffer.pop(0)
+        
+        # Keep memory capped so it doesn't slow down
+        if len(self.training_buffer) > 200: 
+            self.training_buffer.pop(0)
+            
         self.model.fit(self.training_buffer)
