@@ -118,24 +118,20 @@
             radarChart.update();
         });
         // --- NEW: Function to send feedback to the server ---
-        function sendFeedback(id, amount, method, isActualFraud) {
+        function sendFeedback(id, amount, method, isActualFraud, buttonElement) {
+            // Find the parent div of the buttons and replace its content immediately
+            const parentDiv = buttonElement.parentElement;
+            parentDiv.innerHTML = `<span style="color:#ffb86c; font-size: 0.8rem;">Feedback Synced...</span>`;
+
             fetch('/feedback', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     id: id,
                     amount: parseFloat(amount),
                     method: method,
                     is_fraud: isActualFraud
                 })
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Feedback registered:', data);
-                // Change the text to show it was handled
-                event.target.parentElement.innerHTML = `<span style="color:#ffb86c;">Human Feedback Registered. Retraining...</span>`;
             });
         }
     </script>

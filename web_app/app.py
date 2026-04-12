@@ -51,7 +51,7 @@ def stream_and_detect():
             # Broadcast to frontend
             socketio.emit('new_transaction', result)
         
-        socketio.sleep(0.8)
+        socketio.sleep(2.5)
 
 @socketio.on('connect')
 def handle_connect():
