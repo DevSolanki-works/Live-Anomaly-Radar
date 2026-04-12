@@ -3,7 +3,6 @@ import os
 import sqlite3
 from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
-import eventlet
 
 # Ensure we can import our custom modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,7 +10,9 @@ from data_stream.generator import generate_transaction
 from ml_model.detector import AnomalyDetector
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# --- FIX: Switched async_mode to 'threading' for Windows stability ---
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Initialize the ML Brain
 detector = AnomalyDetector()
@@ -63,10 +64,9 @@ def handle_feedback():
     # 3. Retrain the Machine Learning Model
     detector.update_model(amount, method, is_fraud)
     
-    # Return both a success message and updated stats for the frontend
+    # Return updated stats so the UI updates the counters
     return jsonify({
         "status": "success", 
-        "message": "Model retrained and stats updated", 
         "stats": stats
     })
 
@@ -91,14 +91,16 @@ def stream_and_detect():
             # Broadcast to frontend
             socketio.emit('new_transaction', result)
         
-        # Adjustable delay for readability
+        # Slowed down for readability
         socketio.sleep(2.5)
 
 @socketio.on('connect')
 def handle_connect():
     print("💻 Client connected to Radar.")
+    # Threading mode handles background tasks automatically
     socketio.start_background_task(stream_and_detect)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=False)
+    # host '0.0.0.0' is required for Docker and Cloud deployment
+    socketio.run(app, host='0.0.0.0', port=port, debug=True)
