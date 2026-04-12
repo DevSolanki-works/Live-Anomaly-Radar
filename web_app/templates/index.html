@@ -119,21 +119,30 @@
         });
         // --- NEW: Function to send feedback to the server ---
         function sendFeedback(id, amount, method, isActualFraud, buttonElement) {
-            // Find the parent div of the buttons and replace its content immediately
-            const parentDiv = buttonElement.parentElement;
-            parentDiv.innerHTML = `<span style="color:#ffb86c; font-size: 0.8rem;">Feedback Synced...</span>`;
+        // 1. Immediately hide the buttons so the user knows it's working
+        const container = buttonElement.parentElement;
+        container.innerHTML = `<span style="color: #ffb86c; font-size: 0.8rem; font-style: italic;">Processing Feedback...</span>`;
 
-            fetch('/feedback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: id,
-                    amount: parseFloat(amount),
-                    method: method,
-                    is_fraud: isActualFraud
-                })
-            });
-        }
+        // 2. Send the data to the backend
+        fetch('/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                id: id,
+                amount: parseFloat(amount),
+                method: method,
+                is_fraud: isActualFraud
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // 3. Update the text to confirm success
+            container.innerHTML = `<span style="color: #00ff41; font-size: 0.8rem;">✓ Model Retrained</span>`;
+        })
+        .catch(err => {
+            container.innerHTML = `<span style="color: #ff3333; font-size: 0.8rem;">Error syncing.</span>`;
+        });
+    }
     </script>
 </body>
 </html>
