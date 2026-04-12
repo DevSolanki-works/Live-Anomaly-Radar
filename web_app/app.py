@@ -1,7 +1,7 @@
 import sys
 import os
 import sqlite3
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO, emit
 import eventlet
 
@@ -57,6 +57,27 @@ def stream_and_detect():
 def handle_connect():
     print("💻 Client connected to Radar.")
     socketio.start_background_task(stream_and_detect)
+
+# --- NEW: Human-in-the-Loop Feedback Endpoint ---
+@app.route('/feedback', methods=['POST'])
+def handle_feedback():
+    data = request.json
+    transaction_id = data.get('id')
+    is_fraud = data.get('is_fraud')
+    amount = data.get('amount')
+    method = data.get('method')
+    
+    # 1. Update the Database with human validation
+    conn = sqlite3.connect('radar.db')
+    c = conn.cursor()
+    c.execute("UPDATE transactions SET is_anomaly = ? WHERE id = ?", (is_fraud, transaction_id))
+    conn.commit()
+    conn.close()
+    
+    # 2. Retrain the Machine Learning Model
+    detector.update_model(amount, method, is_fraud)
+    
+    return jsonify({"status": "success", "message": "Model retrained"})
 
 if __name__ == '__main__':
     socketio.run(app, debug=True, port=5000)
