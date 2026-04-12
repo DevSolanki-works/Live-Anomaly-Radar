@@ -3,21 +3,75 @@
 <head>
     <title>AI Anomaly Radar</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        /* A little extra styling for our new chart container */
+        #chart-container {
+            width: 100%;
+            max-width: 900px;
+            margin: 0 auto 30px auto;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            background-color: #050505;
+        }
+    </style>
 </head>
 <body>
-    <div id="radar-container">
+    <div>
         <h1>LIVE ANOMALY RADAR</h1>
         <div id="status">System: <span id="mode">Warming Up...</span></div>
-        <div id="feed"></div>
+        
+        <div id="chart-container">
+            <canvas id="radarChart"></canvas>
+        </div>
+
+        <div id="radar-container">
+            <div id="feed"></div>
+        </div>
     </div>
 
     <script>
         const socket = io();
         const feed = document.getElementById('feed');
 
+        // --- NEW: Chart.js Setup ---
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        const radarChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [], // Time/Transaction count goes here
+                datasets: [{
+                    label: 'Transaction Amount ($)',
+                    data: [],
+                    borderColor: '#00ff41', // Terminal green
+                    backgroundColor: 'rgba(0, 255, 65, 0.1)',
+                    borderWidth: 1,
+                    pointBackgroundColor: [], // We will change this to red for anomalies!
+                    pointRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { display: false }, // Hide X axis for a cleaner look
+                    y: { 
+                        grid: { color: '#333' },
+                        ticks: { color: '#00ff41' }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: '#00ff41' } }
+                }
+            }
+        });
+
+        let transactionCount = 0;
+
         socket.on('new_transaction', (data) => {
             document.getElementById('mode').innerText = "Active Detection";
+            
+            // 1. Update the Text Feed
             const div = document.createElement('div');
             div.className = data.is_anomaly ? 'entry anomaly' : 'entry';
             div.innerHTML = `
@@ -27,6 +81,29 @@
                 <strong>${data.is_anomaly ? '🚨 ANOMALY DETECTED' : '✅ CLEAR'}</strong>
             `;
             feed.prepend(div);
+
+            // 2. Update the Live Chart
+            transactionCount++;
+            radarChart.data.labels.push(transactionCount);
+            radarChart.data.datasets[0].data.push(data.amount);
+            
+            // Color the dot red if it's an anomaly, green if normal
+            if (data.is_anomaly) {
+                radarChart.data.datasets[0].pointBackgroundColor.push('#ff3333');
+                radarChart.data.datasets[0].pointRadius[radarChart.data.datasets[0].pointRadius.length - 1] = 8; // Make anomaly dots bigger
+            } else {
+                radarChart.data.datasets[0].pointBackgroundColor.push('#00ff41');
+            }
+
+            // Keep the chart from getting too crowded (remove oldest point if over 20 points)
+            if (radarChart.data.labels.length > 20) {
+                radarChart.data.labels.shift();
+                radarChart.data.datasets[0].data.shift();
+                radarChart.data.datasets[0].pointBackgroundColor.shift();
+            }
+
+            // Tell Chart.js to re-render
+            radarChart.update();
         });
     </script>
 </body>
