@@ -1,70 +1,261 @@
+"""
+System Radar — Background tray app with adaptive anomaly detection.
+
+Dependencies (install once):
+    pip install psutil numpy scikit-learn plyer pystray Pillow
+
+Run:
+    python system_radar.py
+    → An icon appears in your system tray.
+    → Anomaly alerts pop up as native OS notifications.
+    → Right-click the tray icon → Quit to stop.
+"""
+
 import time
-import psutil
+import threading
 import numpy as np
-from sklearn.ensemble import IsolationForest
+import psutil
 from datetime import datetime
+from collections import deque
+from sklearn.ensemble import IsolationForest
 
-class SystemAnomalyDetector:
-    def __init__(self, warmup_samples=30):
-        # contamination=0.05 means the AI expects roughly 5% of readings to be genuine spikes
-        self.model = IsolationForest(contamination=0.05, random_state=42)
-        self.warmup_samples = warmup_samples
-        self.training_buffer = []
+# ── Notification backend ──────────────────────────────────────────────────────
+try:
+    from plyer import notification as plyer_notify
+    PLYER_OK = True
+except ImportError:
+    PLYER_OK = False
+
+# ── Tray icon backend ─────────────────────────────────────────────────────────
+try:
+    import pystray
+    from PIL import Image, ImageDraw
+    TRAY_OK = True
+except ImportError:
+    TRAY_OK = False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SETTINGS
+# ─────────────────────────────────────────────────────────────────────────────
+WARMUP_SAMPLES      = 60        # seconds of baseline collection
+RETRAIN_EVERY       = 300       # retrain model every N seconds
+POLL_INTERVAL       = 2         # seconds between readings
+CONTAMINATION       = 0.03      # expected fraction of genuine spikes (lower = fewer alerts)
+MIN_COOLDOWN_SEC    = 30        # minimum gap between consecutive notifications
+ROLLING_WINDOW      = 300       # samples kept in rolling history (~10 min at 2 s interval)
+
+# Extra guard: only alert if usage is meaningfully above the rolling average
+CPU_DELTA_THRESHOLD = 25        # CPU must be this many % above its rolling mean
+RAM_DELTA_THRESHOLD = 15        # RAM must be this many % above its rolling mean
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ANOMALY DETECTOR
+# ─────────────────────────────────────────────────────────────────────────────
+class AdaptiveDetector:
+    def __init__(self):
+        self.model = IsolationForest(contamination=CONTAMINATION, random_state=42)
+        self.history: deque = deque(maxlen=ROLLING_WINDOW)
         self.is_trained = False
+        self.last_retrain = time.time()
 
+    # ── data ──────────────────────────────────────────────────────────────────
     def get_metrics(self):
-        # Read live CPU utilization (%) and RAM utilization (%)
         cpu = psutil.cpu_percent(interval=None)
         ram = psutil.virtual_memory().percent
         return [cpu, ram]
 
-    def run_radar(self):
-        print("🚀 Booting Local Hardware Radar...")
-        print(f"⏳ Phase 1: Calibrating AI... Gathering {self.warmup_samples} baseline samples.")
+    def rolling_means(self):
+        if not self.history:
+            return 50.0, 50.0
+        arr = np.array(self.history)
+        return arr[:, 0].mean(), arr[:, 1].mean()
 
-        # Prime the CPU reader (the very first call usually returns 0.0)
+    # ── training ──────────────────────────────────────────────────────────────
+    def maybe_retrain(self):
+        if (time.time() - self.last_retrain) >= RETRAIN_EVERY and len(self.history) >= WARMUP_SAMPLES:
+            self.model.fit(np.array(self.history))
+            self.last_retrain = time.time()
+
+    # ── prediction ────────────────────────────────────────────────────────────
+    def predict(self, metrics):
+        """
+        Returns (is_anomaly: bool, score: float).
+        True only when the model flags it AND the usage is significantly above
+        the rolling mean (prevents false alerts from tiny normal spikes).
+        """
+        if not self.is_trained:
+            return False, 0.0
+
+        features = np.array([metrics])
+        prediction = self.model.predict(features)[0]   # 1 = normal, -1 = anomaly
+        score = self.model.decision_function(features)[0]
+
+        if prediction != -1:
+            return False, score
+
+        # Secondary guard — delta above rolling baseline
+        mean_cpu, mean_ram = self.rolling_means()
+        cpu_spike = metrics[0] - mean_cpu >= CPU_DELTA_THRESHOLD
+        ram_spike = metrics[1] - mean_ram >= RAM_DELTA_THRESHOLD
+
+        is_anomaly = cpu_spike or ram_spike
+        return is_anomaly, score
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  NOTIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+def send_notification(title: str, message: str):
+    """Send a native OS notification."""
+    if PLYER_OK:
+        try:
+            plyer_notify.notify(
+                title=title,
+                message=message,
+                app_name="System Radar",
+                timeout=8,
+            )
+            return
+        except Exception:
+            pass
+    # Fallback: print to stdout (visible if user runs with a terminal)
+    print(f"\n🚨 {title}: {message}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  TRAY ICON
+# ─────────────────────────────────────────────────────────────────────────────
+def make_icon(color="#00ff88"):
+    """Draw a simple coloured radar-blip icon."""
+    size = 64
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # Outer ring
+    d.ellipse([4, 4, 60, 60], outline=color, width=4)
+    # Cross-hair
+    d.line([32, 8, 32, 56], fill=color, width=2)
+    d.line([8, 32, 56, 32], fill=color, width=2)
+    # Centre dot
+    d.ellipse([26, 26, 38, 38], fill=color)
+    return img
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RADAR LOOP (runs in a background thread)
+# ─────────────────────────────────────────────────────────────────────────────
+class SystemRadar:
+    def __init__(self):
+        self.detector = AdaptiveDetector()
+        self._stop = threading.Event()
+        self._last_alert = 0
+        self._tray_icon = None
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _set_tray_status(self, anomaly: bool):
+        if self._tray_icon is None:
+            return
+        try:
+            self._tray_icon.icon = make_icon("#ff3333" if anomaly else "#00ff88")
+        except Exception:
+            pass
+
+    # ── main loop ─────────────────────────────────────────────────────────────
+    def run(self):
+        # Prime the psutil CPU reader
         psutil.cpu_percent()
         time.sleep(1)
 
-        while True:
-            metrics = self.get_metrics()
-            timestamp = datetime.now().strftime("%H:%M:%S")
+        print("🚀 System Radar starting…")
+        print(f"⏳ Collecting {WARMUP_SAMPLES} baseline samples ({WARMUP_SAMPLES * POLL_INTERVAL}s)…")
 
-            # --- PHASE 1: WARM-UP ---
-            if not self.is_trained:
-                self.training_buffer.append(metrics)
-                progress = len(self.training_buffer)
-                
-                # Dynamic terminal output (overwrites the same line)
-                print(f"[{timestamp}] Calibrating: {progress}/{self.warmup_samples} | CPU: {metrics[0]:.1f}% | RAM: {metrics[1]:.1f}%", end="\r")
+        while not self._stop.is_set():
+            metrics = self.detector.get_metrics()
+            ts = datetime.now().strftime("%H:%M:%S")
 
-                if progress >= self.warmup_samples:
-                    print("\n\n🧠 Baseline established. Training Isolation Forest...")
-                    self.model.fit(self.training_buffer)
-                    self.is_trained = True
-                    print("🛡️ Phase 2: Active Monitoring Mode Engaged. (Press Ctrl+C to stop)\n")
+            # ── PHASE 1: warm-up ──────────────────────────────────────────────
+            if not self.detector.is_trained:
+                self.detector.history.append(metrics)
+                n = len(self.detector.history)
+                print(f"[{ts}] Calibrating {n}/{WARMUP_SAMPLES} | CPU {metrics[0]:.1f}% RAM {metrics[1]:.1f}%", end="\r")
 
-            # --- PHASE 2: LIVE DETECTION ---
+                if n >= WARMUP_SAMPLES:
+                    print("\n🧠 Training model on baseline…")
+                    self.detector.model.fit(np.array(self.detector.history))
+                    self.detector.is_trained = True
+                    self.detector.last_retrain = time.time()
+                    print("🛡️  Active monitoring engaged.\n")
+                    send_notification("System Radar", "✅ Monitoring active. You'll be notified of anomalies.")
+
+            # ── PHASE 2: live detection ───────────────────────────────────────
             else:
-                # Scikit-learn expects a 2D array, so we wrap metrics in an extra set of brackets
-                features = np.array([metrics])
-                
-                # Predict returns 1 for normal, -1 for anomaly
-                prediction = self.model.predict(features)[0] 
-                score = self.model.decision_function(features)[0]
+                self.detector.history.append(metrics)
+                self.detector.maybe_retrain()
 
-                if prediction == -1:
-                    print(f"🚨 ANOMALY DETECTED [{timestamp}] | CPU: {metrics[0]:.1f}% | RAM: {metrics[1]:.1f}% | AI Score: {score:.3f}")
+                is_anomaly, score = self.detector.predict(metrics)
+
+                if is_anomaly:
+                    now = time.time()
+                    if (now - self._last_alert) >= MIN_COOLDOWN_SEC:
+                        self._last_alert = now
+                        mean_cpu, mean_ram = self.detector.rolling_means()
+                        msg = (
+                            f"CPU {metrics[0]:.1f}% (avg {mean_cpu:.1f}%)  |  "
+                            f"RAM {metrics[1]:.1f}% (avg {mean_ram:.1f}%)"
+                        )
+                        send_notification("🚨 ANOMALY DETECTED", msg)
+                        self._set_tray_status(True)
+                        print(f"🚨 [{ts}] ANOMALY | {msg} | score {score:.3f}")
+                    else:
+                        print(f"[{ts}] Anomaly (cooldown) | CPU {metrics[0]:.1f}% RAM {metrics[1]:.1f}%", end="\r")
                 else:
-                    # Silent monitoring: just overwrite the current line with a heartbeat
-                    print(f"[{timestamp}] System Normal | CPU: {metrics[0]:.1f}% | RAM: {metrics[1]:.1f}%", end="\r")
+                    self._set_tray_status(False)
+                    print(f"[{ts}] Normal | CPU {metrics[0]:.1f}% RAM {metrics[1]:.1f}%", end="\r")
 
-            # Delay to avoid the radar itself using up too much CPU!
-            time.sleep(1)
+            self._stop.wait(POLL_INTERVAL)
+
+    def stop(self):
+        self._stop.set()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ENTRY POINT
+# ─────────────────────────────────────────────────────────────────────────────
+def main():
+    radar = SystemRadar()
+
+    if TRAY_OK:
+        # Run the radar loop in a daemon thread so the tray loop owns the main thread
+        t = threading.Thread(target=radar.run, daemon=True)
+        t.start()
+
+        def on_quit(icon, item):
+            radar.stop()
+            icon.stop()
+
+        icon = pystray.Icon(
+            "system_radar",
+            make_icon(),
+            "System Radar",
+            menu=pystray.Menu(
+                pystray.MenuItem("System Radar — Running", None, enabled=False),
+                pystray.MenuItem("Quit", on_quit),
+            ),
+        )
+        radar._tray_icon = icon
+        print("📡 Tray icon active. Right-click it → Quit to stop.")
+        icon.run()          # blocks until quit
+
+    else:
+        # No tray library — just run the loop directly
+        print("⚠️  pystray/Pillow not found. Running in terminal-only mode.")
+        print("    Install with: pip install pystray Pillow")
+        try:
+            radar.run()
+        except KeyboardInterrupt:
+            print("\n\n🛑 Radar offline.")
+
 
 if __name__ == "__main__":
-    detector = SystemAnomalyDetector(warmup_samples=30)
-    try:
-        detector.run_radar()
-    except KeyboardInterrupt:
-        print("\n\n🛑 Radar System Offline.")
+    main()
