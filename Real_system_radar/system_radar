@@ -1,16 +1,3 @@
-"""
-System Radar — Background tray app with adaptive anomaly detection.
-
-Dependencies (install once):
-    pip install psutil numpy scikit-learn plyer pystray Pillow
-
-Run:
-    python system_radar.py
-    → An icon appears in your system tray.
-    → Anomaly alerts pop up as native OS notifications.
-    → Right-click the tray icon → Quit to stop.
-"""
-
 import time
 import threading
 import numpy as np
