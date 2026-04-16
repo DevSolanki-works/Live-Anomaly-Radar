@@ -67,4 +67,4 @@ if __name__ == "__main__":
     try:
         detector.run_radar()
     except KeyboardInterrupt:
-        print("\n\n🛑 Radar System Offline. Good work, Dev.")
+        print("\n\n🛑 Radar System Offline.")
