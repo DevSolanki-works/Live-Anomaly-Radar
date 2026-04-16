@@ -1,5 +1,14 @@
+# Python bytecode
 __pycache__/
-*.pyc
-radar.db
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+env/
 venv/
+ENV/
+
+# OS files
 .DS_Store
+Thumbs.db
