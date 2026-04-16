@@ -76,13 +76,12 @@ class AdaptiveDetector:
             return False, 0.0
 
         features = np.array([metrics])
-        prediction = self.model.predict(features)[0]   # 1 = normal, -1 = anomaly
+        prediction = self.model.predict(features)[0]
         score = self.model.decision_function(features)[0]
 
         if prediction != -1:
             return False, score
 
-        # Secondary guard — delta above rolling baseline
         mean_cpu, mean_ram = self.rolling_means()
         cpu_spike = metrics[0] - mean_cpu >= CPU_DELTA_THRESHOLD
         ram_spike = metrics[1] - mean_ram >= RAM_DELTA_THRESHOLD
